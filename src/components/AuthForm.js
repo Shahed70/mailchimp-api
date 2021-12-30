@@ -1,12 +1,15 @@
 import produce from "immer";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { useRecoilState } from "recoil";
 import { credentialState } from '../Atoms'
 
-const AuthForm = () => {
+const AuthForm = ({ setCode }) => {
   const [credentials, setCredentials] = useRecoilState(credentialState);
-  console.log(credentials);
-  function getAuthData({ name, value }) {
+
+  const [authorized, setAuthorized] = useState(false)
+
+  const getAuthData = ({ name, value }) => {
     setCredentials((prvState) =>
       produce(prvState, (draft) => {
         draft[name] = value
@@ -14,29 +17,52 @@ const AuthForm = () => {
     );
   }
 
-  function sendSecret() {
-    let response = window.open(`https://login.mailchimp.com/oauth2/authorize?response_type=code&client_id=${credentials.clientId}&redirect_uri=${credentials.url}`, `_blank`, `toolbar=yes, scrollbars=yes, resizable=yes,top=50,left=200,width=600,`);
+  const getAccessTokenByCode = code => {
+    fetch('http://localhost/mailchimp-php/generate_access_token.php', {
+      method: 'POST',
+      body: code
+    }).then(res => res.json())
+      .then(data => {
+        setCredentials((prvState) =>
+          produce(prvState, (draft) => {
+            draft.code = data
+          })
+        );
+
+        localStorage.removeItem('mailchimp_code')
+      })
   }
 
-  function setUrlToLocalStorage() {
-    console.log('test', window, window.open())
-    if (window.opener) {
-      localStorage.setItem('url', window.location.search)
+  const sendSecret = e => {
+    e.preventDefault()
+    let authWindow = window.open(`https://login.mailchimp.com/oauth2/authorize?response_type=code&client_id=${credentials.clientId}&redirect_uri=${credentials.url}`, `_blank`, `toolbar=yes, scrollbars=yes, resizable=yes,top=50,left=200,width=600,`);
 
-      const code = window.location.search
-      if(code){
+    const popupURLCheckTimer = setInterval(() => {
+      if (authWindow.closed) {
+        clearInterval(popupURLCheckTimer)
+        const mailchimp_code = localStorage.getItem('mailchimp_code')
+        if (mailchimp_code) {
+          getAccessTokenByCode(mailchimp_code)
+          setAuthorized(true)
+        }
+      }
+    }, 500)
+  }
+
+  const setAuthToLocalStorage = () => {
+    if (window.opener) {
+      let code = window.location.search.split('=')[1]
+      localStorage.setItem('mailchimp_code', code)
+      if (code) {
         window.close()
       }
-      fetch('http://localhost/mailchimp-php/index.php', {
-        method: 'POST',
-        body: code
-      })
     }
   }
 
   useEffect(() => {
-    setUrlToLocalStorage()
+    setAuthToLocalStorage()
   }, [])
+
   return (
     <div className="w-full max-w-md">
       <form className="bg-white shadow-md rounded px-8 pt-6 pb-8 mb-4" onSubmit={sendSecret} >
@@ -94,11 +120,20 @@ const AuthForm = () => {
 
             className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
             type="submit"
-            //onClick={sendSecret}
             name="submit"
           >
             Auth
           </button>
+
+          {
+            authorized ? <Link
+              to="/newForm"
+              className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+            >
+              Next
+            </Link> : ""
+          }
+
         </div>
       </form>
 
